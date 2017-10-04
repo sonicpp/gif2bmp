@@ -15,13 +15,14 @@
 
 #include "gif2bmp.h"
 
+static int gif2bmp(FILE *input, FILE *output);
 static void usage(void);
 static int args_parse(int argc, char * const argv[],
-	char **i_name, char **o_name);
-static int io_open(char *i_name, char *o_name, FILE **i_file, FILE **o_file);
-static void io_close(FILE *i_file, FILE *o_file);
+	char **s_input, char **s_output);
+static int io_open(char *s_input, char *s_output, FILE **f_input, FILE **f_output);
+static void io_close(FILE *f_input, FILE *f_output);
 
-int gif2bmp(FILE *input, FILE *output)
+static int gif2bmp(FILE *input, FILE *output)
 {
 	return 0;
 }
@@ -35,7 +36,7 @@ static void usage(void)
 }
 
 static int args_parse(int argc, char * const argv[],
-char **i_name, char **o_name)
+char **s_input, char **s_output)
 {
 	int chr;
 
@@ -43,10 +44,10 @@ char **i_name, char **o_name)
 	while ((chr = getopt(argc, argv, "i:o:h")) != -1) {
 		switch (chr) {
 		case 'i':
-			*i_name = optarg;
+			*s_input = optarg;
 			break;
 		case 'o':
-			*o_name = optarg;
+			*s_output = optarg;
 			break;
 		case 'h':
 		case '?':
@@ -63,60 +64,60 @@ char **i_name, char **o_name)
 	return 0;
 }
 
-static int io_open(char *i_name, char *o_name, FILE **i_file, FILE **o_file)
+static int io_open(char *s_input, char *s_output, FILE **f_input, FILE **f_output)
 {
-	if (i_name != NULL) {
-		*i_file = fopen(i_name, "rb");
-		if (!*i_file) {
+	if (s_input != NULL) {
+		*f_input = fopen(s_input, "rb");
+		if (!*f_input) {
 			fprintf(stderr, "Error: opening file '%s': %s\n",
-				i_name, strerror(errno));
+				s_input, strerror(errno));
 			return 1;
 		}
 	}
 	else
-		*i_file = stdin;
+		*f_input = stdin;
 
-	if (o_name != NULL) {
-		*o_file = fopen(o_name, "wb");
-		if (!*o_file) {
+	if (s_output != NULL) {
+		*f_output = fopen(s_output, "wb");
+		if (!*f_output) {
 			fprintf(stderr, "Error: opening file '%s': %s\n",
-				o_name, strerror(errno));
-			if (*i_file != stdin)
-				fclose(*i_file);
+				s_output, strerror(errno));
+			if (*f_input != stdin)
+				fclose(*f_input);
 			return 1;
 		}
 	}
 	else
-		*o_file = stdout;
+		*f_output = stdout;
 
 	return 0;
 }
 
-static void io_close(FILE *i_file, FILE *o_file)
+static void io_close(FILE *f_input, FILE *f_output)
 {
-	if (i_file != stdin)
-		fclose (i_file);
+	if (f_input != stdin)
+		fclose (f_input);
 
-	if (o_file != stdout)
-		fclose(o_file);
+	if (f_output != stdout)
+		fclose(f_output);
 }
 
 int main(int argc, char *argv[])
 {
-	char *i_name = NULL;
-	char *o_name = NULL;
-	FILE *i_file = NULL;
-	FILE *o_file = NULL;
+	char *s_input = NULL;
+	char *s_output = NULL;
+	FILE *f_input = NULL;
+	FILE *f_output = NULL;
 	int ret;
 
-	if (args_parse(argc, argv, &i_name, &o_name))
+	if (args_parse(argc, argv, &s_input, &s_output))
 		return 1;
 
-	if (io_open(i_name, o_name, &i_file, &o_file))
+	if (io_open(s_input, s_output, &f_input, &f_output))
 		return 1;
 
-	ret =  gif2bmp(i_file, o_file);
-	io_close(i_file, o_file);
+	ret = gif2bmp(f_input, f_output);
+	io_close(f_input, f_output);
 
 	return ret;
 }

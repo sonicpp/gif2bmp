@@ -11,7 +11,5 @@
 #ifndef GIF2BMP_H
 #define GIF2BMP_H
 
-extern int gif2bmp(FILE *input, FILE *output);
-
 #endif // GIF2BMP_H
 
