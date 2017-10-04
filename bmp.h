@@ -1,5 +1,5 @@
 /*
- * gif2bmp.c - Read GIF image, convert it to PNG image and write it to output
+ * bmp.h - Convert p_img to PNG format and write it to f_gif
  *
  * Copyright (C) 2017 Jan Havran
  *
@@ -8,17 +8,12 @@
  * published by the Free Software Foundation.
  */
 
-#ifndef GIF2BMP_H
-#define GIF2BMP_H
+#ifndef BMP_H
+#define BMP_H
 
-#include <stdint.h>
+#include "gif2bmp.h"
 
-typedef struct
-{
-	uint16_t width;
-	uint16_t height;
-	uint8_t *data;
-} image_t;
+extern size_t bmp_save(image_t *p_img, FILE *f_gif);
 
-#endif // GIF2BMP_H
+#endif // BMP_H
 

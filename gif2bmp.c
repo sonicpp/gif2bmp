@@ -14,6 +14,8 @@
 #include <errno.h>
 
 #include "gif2bmp.h"
+#include "gif.h"
+#include "bmp.h"
 
 static int gif2bmp(FILE *input, FILE *output);
 static void usage(void);
@@ -24,6 +26,11 @@ static void io_close(FILE *f_input, FILE *f_output);
 
 static int gif2bmp(FILE *input, FILE *output)
 {
+	image_t img;
+
+	gif_load(&img, input);
+	bmp_save(&img, output);
+
 	return 0;
 }
 
