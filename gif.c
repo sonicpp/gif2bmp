@@ -126,14 +126,17 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 	size_t block_len = 0;
 	uint8_t byte;
 
+	/* Parse Header */
 	if ((block_len = load_header(&header, f_gif)) == 0)
 		GIF_ERROR("GIF: Invalid header\n");
 	gif_len += block_len;
 
+	/* Parse Logical Screen Descriptor */
 	if ((block_len = load_lsd(&lsd, f_gif)) == 0)
 		GIF_ERROR("GIF: Invalid Local Screen Descriptor\n");
 	gif_len += block_len;
 
+	/* Parse Global Color Table - if present */
 	if (lsd.field.gct_flag) {
 		if ((gct = (struct GIF_ct *) malloc(
 			COLOR_TABLE_SIZE(lsd.field.gct_size))) == NULL) {
@@ -146,11 +149,14 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 		gif_len += block_len;
 	}
 
+	/* Parse Data Streams */
 	do {
+		/* Check label - determine which block follows */
 		if (fread(&byte, 1, 1, f_gif) == 0)
 			GIF_ERROR("GIF: missing file content\n");
 		gif_len++;
 
+		/* Parse extensions - if present */
 		while (byte == INTRO_EXTENSION) {
 			if ((block_len = load_ext(f_gif)) == 0)
 				GIF_ERROR("GIF: invalid extension\n");
