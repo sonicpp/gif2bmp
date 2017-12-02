@@ -9,11 +9,85 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "gif.h"
 
+/* GIF header */
+struct GIF_header
+{
+	uint8_t signature[3];
+	uint8_t version[3];
+} __attribute__((packed));
+
+/* Packed Fields for Logical Screen Descriptor */
+struct GIF_lsd_field
+{
+	uint8_t gct_flag : 1;
+	uint8_t col_resolution : 3;
+	uint8_t sort_flag : 1;
+	uint8_t gct_size : 3;
+} __attribute__((packed));
+
+/* Logical Screen Descriptor */
+struct GIF_lsd
+{
+	uint16_t width;
+	uint16_t height;
+	struct GIF_lsd_field field;
+	uint8_t transID;
+	uint8_t aspect;
+} __attribute__((packed));
+
+#define SIZE_HEADER		(sizeof(struct GIF_header))
+#define SIZE_LSD		(sizeof(struct GIF_lsd))
+
+static size_t load_header(struct GIF_header *header, FILE *f_gif)
+{
+	size_t cnt;
+
+	cnt = fread(header, 1, SIZE_HEADER, f_gif);
+	if (cnt != SIZE_HEADER)
+		return 0;
+
+	if (memcmp(header->signature, "GIF", 3))
+		return 0;
+	if (memcmp(header->version, "89a", 3) && memcmp(header->version, "87a", 3))
+		return 0;
+
+	return cnt;
+}
+
+static size_t load_lsd(struct GIF_lsd *lsd, FILE *f_gif)
+{
+	size_t cnt;
+
+	cnt = fread(lsd, 1, SIZE_LSD, f_gif);
+	if (cnt != SIZE_LSD)
+		cnt = 0;
+
+	return cnt;
+}
+
 size_t gif_load(image_t *p_img, FILE *f_gif)
 {
+	struct GIF_header header;
+	struct GIF_lsd lsd;
+	size_t gif_len = 0;
+	size_t block_len = 0;
+
+	if ((block_len = load_header(&header, f_gif)) == 0) {
+		fprintf(stderr, "GIF: Invalid header\n");
+		return 0;
+	}
+	gif_len += block_len;
+
+	if ((block_len = load_lsd(&lsd, f_gif)) == 0) {
+		fprintf(stderr, "GIF: Invalid Local Screen Descriptor\n");
+		return 0;
+	}
+	gif_len += block_len;
+
 	return 0;
 }
 
