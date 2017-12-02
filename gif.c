@@ -58,6 +58,13 @@ struct GIF_ct
 #define INTRO_IMG_DESC		((uint8_t) 0x2C)
 #define TRAILER			((uint8_t) 0x3B)
 
+#define GIF_ERROR(string) \
+	do { \
+		fprintf(stderr, string); \
+		gif_len = 0; \
+		goto gif_end; \
+	} while(0)
+
 static size_t load_header(struct GIF_header *header, FILE *f_gif)
 {
 	assert(header);
@@ -119,65 +126,43 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 	size_t block_len = 0;
 	uint8_t byte;
 
-	if ((block_len = load_header(&header, f_gif)) == 0) {
-		fprintf(stderr, "GIF: Invalid header\n");
-		gif_len = 0;
-		goto gif_end;
-	}
+	if ((block_len = load_header(&header, f_gif)) == 0)
+		GIF_ERROR("GIF: Invalid header\n");
 	gif_len += block_len;
 
-	if ((block_len = load_lsd(&lsd, f_gif)) == 0) {
-		fprintf(stderr, "GIF: Invalid Local Screen Descriptor\n");
-		gif_len = 0;
-		goto gif_end;
-	}
+	if ((block_len = load_lsd(&lsd, f_gif)) == 0)
+		GIF_ERROR("GIF: Invalid Local Screen Descriptor\n");
 	gif_len += block_len;
 
 	if (lsd.field.gct_flag) {
 		if ((gct = (struct GIF_ct *) malloc(
 			COLOR_TABLE_SIZE(lsd.field.gct_size))) == NULL) {
-			fprintf(stderr, "Not enough memory\n");
-			gif_len = 0;
-			goto gif_end;
+			GIF_ERROR("Not enough memory\n");
 		}
 		if ((block_len = load_color_table(gct,
 			COLOR_TABLE_SIZE(lsd.field.gct_size), f_gif)) == 0) {
-			fprintf(stderr, "GIF: Invalid Global Color Table\n");
-			gif_len = 0;
-			goto gif_end;
+			GIF_ERROR("GIF: Invalid Global Color Table\n");
 		}
 		gif_len += block_len;
 	}
 
 	do {
-		if (fread(&byte, 1, 1, f_gif) == 0) {
-			fprintf(stderr, "GIF: missing file content\n");
-			gif_len = 0;
-			goto gif_end;
-		}
+		if (fread(&byte, 1, 1, f_gif) == 0)
+			GIF_ERROR("GIF: missing file content\n");
 		gif_len++;
 
 		while (byte == INTRO_EXTENSION) {
-			if ((block_len = load_ext(f_gif)) == 0) {
-				fprintf(stderr, "GIF: invalid extension\n");
-				gif_len = 0;
-				goto gif_end;
-			}
+			if ((block_len = load_ext(f_gif)) == 0)
+				GIF_ERROR("GIF: invalid extension\n");
 			gif_len += block_len;
 
-			if (fread(&byte, 1, 1, f_gif) == 0) {
-				fprintf(stderr, "GIF: missing file content\n");
-				gif_len = 0;
-				goto gif_end;
-			}
+			if (fread(&byte, 1, 1, f_gif) == 0)
+				GIF_ERROR("GIF: missing file content\n");
 			gif_len++;
 		}
 
-		if (byte != INTRO_IMG_DESC) {
-			fprintf(stderr, "GIF: missing image description\n");
-			gif_len = 0;
-			goto gif_end;
-		}
+		if (byte != INTRO_IMG_DESC)
+			GIF_ERROR("GIF: missing image description\n");
 		/* TODO: parse image description */
 
 		if (lct) {
