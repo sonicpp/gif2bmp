@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "gif.h"
 
@@ -39,8 +40,18 @@ struct GIF_lsd
 	uint8_t aspect;
 } __attribute__((packed));
 
+/* Color Table */
+struct GIF_ct
+{
+	uint8_t r;
+	uint8_t g;
+	uint8_t b;
+} __attribute__((packed));
+
 #define SIZE_HEADER		(sizeof(struct GIF_header))
 #define SIZE_LSD		(sizeof(struct GIF_lsd))
+
+#define COLOR_TABLE_SIZE(size)	(3u * (1u << ((size) + 1u)))
 
 static size_t load_header(struct GIF_header *header, FILE *f_gif)
 {
@@ -69,10 +80,22 @@ static size_t load_lsd(struct GIF_lsd *lsd, FILE *f_gif)
 	return cnt;
 }
 
+static size_t load_color_table(struct GIF_ct *table, uint16_t size, FILE *f_gif)
+{
+	size_t cnt;
+
+	cnt = fread(table, 1, size, f_gif);
+	if (cnt != size)
+		cnt = 0;
+
+	return cnt;
+}
+
 size_t gif_load(image_t *p_img, FILE *f_gif)
 {
 	struct GIF_header header;
 	struct GIF_lsd lsd;
+	struct GIF_ct *gct = NULL;	/* global color table */
 	size_t gif_len = 0;
 	size_t block_len = 0;
 
@@ -87,6 +110,24 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 		return 0;
 	}
 	gif_len += block_len;
+
+	if (lsd.field.gct_flag) {
+		if ((gct = (struct GIF_ct *) malloc(
+			COLOR_TABLE_SIZE(lsd.field.gct_size))) == NULL) {
+			fprintf(stderr, "Not enough memory\n");
+			return 0;
+		}
+		if ((block_len = load_color_table(gct,
+			COLOR_TABLE_SIZE(lsd.field.gct_size), f_gif)) == 0) {
+			fprintf(stderr, "GIF: Invalid Global Color Table\n");
+			free(gct);
+			return 0;
+		}
+		gif_len += block_len;
+	}
+
+	if (gct != NULL)
+		free(gct);
 
 	return 0;
 }
