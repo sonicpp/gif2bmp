@@ -121,13 +121,15 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 
 	if ((block_len = load_header(&header, f_gif)) == 0) {
 		fprintf(stderr, "GIF: Invalid header\n");
-		return 0;
+		gif_len = 0;
+		goto gif_end;
 	}
 	gif_len += block_len;
 
 	if ((block_len = load_lsd(&lsd, f_gif)) == 0) {
 		fprintf(stderr, "GIF: Invalid Local Screen Descriptor\n");
-		return 0;
+		gif_len = 0;
+		goto gif_end;
 	}
 	gif_len += block_len;
 
@@ -135,13 +137,14 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 		if ((gct = (struct GIF_ct *) malloc(
 			COLOR_TABLE_SIZE(lsd.field.gct_size))) == NULL) {
 			fprintf(stderr, "Not enough memory\n");
-			return 0;
+			gif_len = 0;
+			goto gif_end;
 		}
 		if ((block_len = load_color_table(gct,
 			COLOR_TABLE_SIZE(lsd.field.gct_size), f_gif)) == 0) {
 			fprintf(stderr, "GIF: Invalid Global Color Table\n");
-			free(gct);
-			return 0;
+			gif_len = 0;
+			goto gif_end;
 		}
 		gif_len += block_len;
 	}
@@ -149,41 +152,31 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 	do {
 		if (fread(&byte, 1, 1, f_gif) == 0) {
 			fprintf(stderr, "GIF: missing file content\n");
-			if (gct)
-				free(gct);
-			return 0;
+			gif_len = 0;
+			goto gif_end;
 		}
 		gif_len++;
 
 		while (byte == INTRO_EXTENSION) {
 			if ((block_len = load_ext(f_gif)) == 0) {
 				fprintf(stderr, "GIF: invalid extension\n");
-				if (gct)
-					free(gct);
-				if (lct)
-					free(lct);
-				return 0;
+				gif_len = 0;
+				goto gif_end;
 			}
 			gif_len += block_len;
 
 			if (fread(&byte, 1, 1, f_gif) == 0) {
 				fprintf(stderr, "GIF: missing file content\n");
-				if (gct)
-					free(gct);
-				if (lct)
-					free(lct);
-				return 0;
+				gif_len = 0;
+				goto gif_end;
 			}
 			gif_len++;
 		}
 
 		if (byte != INTRO_IMG_DESC) {
 			fprintf(stderr, "GIF: missing image description\n");
-			if (gct)
-				free(gct);
-			if (lct)
-				free(lct);
-			return 0;
+			gif_len = 0;
+			goto gif_end;
 		}
 		/* TODO: parse image description */
 
@@ -195,9 +188,12 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 
 	/* TODO: parse remaining bytes? */
 
-	if (gct != NULL)
+gif_end:
+	if (gct)
 		free(gct);
+	if (lct)
+		free(lct);
 
-	return 0;
+	return gif_len;
 }
 
