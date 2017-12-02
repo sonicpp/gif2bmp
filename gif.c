@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include "gif.h"
 
@@ -55,6 +56,8 @@ struct GIF_ct
 
 static size_t load_header(struct GIF_header *header, FILE *f_gif)
 {
+	assert(header);
+	assert(f_gif);
 	size_t cnt;
 
 	cnt = fread(header, 1, SIZE_HEADER, f_gif);
@@ -71,6 +74,8 @@ static size_t load_header(struct GIF_header *header, FILE *f_gif)
 
 static size_t load_lsd(struct GIF_lsd *lsd, FILE *f_gif)
 {
+	assert(lsd);
+	assert(f_gif);
 	size_t cnt;
 
 	cnt = fread(lsd, 1, SIZE_LSD, f_gif);
@@ -82,6 +87,9 @@ static size_t load_lsd(struct GIF_lsd *lsd, FILE *f_gif)
 
 static size_t load_color_table(struct GIF_ct *table, uint16_t size, FILE *f_gif)
 {
+	assert(table);
+	assert(f_gif);
+	assert(size % sizeof(struct GIF_ct) == 0);
 	size_t cnt;
 
 	cnt = fread(table, 1, size, f_gif);
