@@ -54,6 +54,10 @@ struct GIF_ct
 
 #define COLOR_TABLE_SIZE(size)	(3u * (1u << ((size) + 1u)))
 
+#define INTRO_EXTENSION		((uint8_t) 0x21)
+#define INTRO_IMG_DESC		((uint8_t) 0x2C)
+#define TRAILER			((uint8_t) 0x3B)
+
 static size_t load_header(struct GIF_header *header, FILE *f_gif)
 {
 	assert(header);
@@ -99,13 +103,21 @@ static size_t load_color_table(struct GIF_ct *table, uint16_t size, FILE *f_gif)
 	return cnt;
 }
 
+static size_t load_ext(FILE *f_gif)
+{
+	/*TODO */
+	return 0;
+}
+
 size_t gif_load(image_t *p_img, FILE *f_gif)
 {
 	struct GIF_header header;
 	struct GIF_lsd lsd;
 	struct GIF_ct *gct = NULL;	/* global color table */
+	struct GIF_ct *lct = NULL;	/* local color table */
 	size_t gif_len = 0;
 	size_t block_len = 0;
+	uint8_t byte;
 
 	if ((block_len = load_header(&header, f_gif)) == 0) {
 		fprintf(stderr, "GIF: Invalid header\n");
@@ -133,6 +145,55 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 		}
 		gif_len += block_len;
 	}
+
+	do {
+		if (fread(&byte, 1, 1, f_gif) == 0) {
+			fprintf(stderr, "GIF: missing file content\n");
+			if (gct)
+				free(gct);
+			return 0;
+		}
+		gif_len++;
+
+		while (byte == INTRO_EXTENSION) {
+			if ((block_len = load_ext(f_gif)) == 0) {
+				fprintf(stderr, "GIF: invalid extension\n");
+				if (gct)
+					free(gct);
+				if (lct)
+					free(lct);
+				return 0;
+			}
+			gif_len += block_len;
+
+			if (fread(&byte, 1, 1, f_gif) == 0) {
+				fprintf(stderr, "GIF: missing file content\n");
+				if (gct)
+					free(gct);
+				if (lct)
+					free(lct);
+				return 0;
+			}
+			gif_len++;
+		}
+
+		if (byte != INTRO_IMG_DESC) {
+			fprintf(stderr, "GIF: missing image description\n");
+			if (gct)
+				free(gct);
+			if (lct)
+				free(lct);
+			return 0;
+		}
+		/* TODO: parse image description */
+
+		if (lct) {
+			free(lct);
+			lct = NULL;
+		}
+	} while (byte != TRAILER);
+
+	/* TODO: parse remaining bytes? */
 
 	if (gct != NULL)
 		free(gct);
