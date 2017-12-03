@@ -373,6 +373,7 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 	struct GIF_header header;
 	struct GIF_lsd lsd;
 	struct GIF_img_desc img_desc;
+	struct GIF_ct *cct = NULL;	/* current color table */
 	struct GIF_ct *gct = NULL;	/* global color table */
 	struct GIF_ct *lct = NULL;	/* local color table */
 	size_t gif_len = 0;
@@ -432,7 +433,20 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 			lsd.height != img_desc.height)
 			GIF_ERROR("Image and Screen desc size differs\n");
 
-		/* TODO parse lct */
+		/* Parse Local Color Table - if present */
+		if (img_desc.field.lct_flag) {
+			if ((lct = (struct GIF_ct *) malloc(
+			COLOR_TABLE_SIZE(img_desc.field.lct_size))) == NULL)
+				GIF_ERROR("Not enough memory\n");
+
+			if ((block_len = load_color_table(lct,
+			COLOR_TABLE_SIZE(img_desc.field.lct_size), f_gif)) == 0)
+				GIF_ERROR("Invalid Local Color Table\n");
+			gif_len += block_len;
+		}
+
+		/* Choose Current Color Table */
+		cct = (lct) ? lct : gct;
 
 		/* TODO parse image data */
 
