@@ -41,6 +41,26 @@ struct GIF_lsd
 	uint8_t aspect;
 } __attribute__((packed));
 
+/* Packed Fields for Image Descriptor */
+struct GIF_img_desc_field
+{
+	uint8_t lct_flag : 1;
+	uint8_t interlace_flag : 1;
+	uint8_t sort_flag : 1;
+	uint8_t reserved : 2;
+	uint8_t lct_size : 3;
+} __attribute__((packed));
+
+/* Image Descriptor */
+struct GIF_img_desc
+{
+	uint16_t left_edge;
+	uint16_t top_edge;
+	uint16_t width;
+	uint16_t height;
+	struct GIF_img_desc_field field;
+} __attribute__((packed));
+
 /* Color Table */
 struct GIF_ct
 {
@@ -88,6 +108,7 @@ struct GIF_ext_app
 
 #define SIZE_HEADER		(sizeof(struct GIF_header))
 #define SIZE_LSD		(sizeof(struct GIF_lsd))
+#define SIZE_IMG_DESC		(sizeof(struct GIF_img_desc))
 #define SIZE_EXT_GCONTROL	(sizeof(struct GIF_ext_gcontrol))
 #define SIZE_EXT_PLAIN		(sizeof(struct GIF_ext_plain))
 #define SIZE_EXT_APP		(sizeof(struct GIF_ext_app))
@@ -334,10 +355,24 @@ static size_t load_ext(FILE *f_gif)
 	return cnt + 1; /* extension identifier + extension itself */
 }
 
+static size_t load_img_desc(struct GIF_img_desc *desc, FILE *f_gif)
+{
+	assert(desc);
+	assert(f_gif);
+	size_t cnt;
+
+	cnt = fread(desc, 1, SIZE_IMG_DESC, f_gif);
+	if (cnt != SIZE_IMG_DESC)
+		return 0;
+
+	return cnt;
+}
+
 size_t gif_load(image_t *p_img, FILE *f_gif)
 {
 	struct GIF_header header;
 	struct GIF_lsd lsd;
+	struct GIF_img_desc img_desc;
 	struct GIF_ct *gct = NULL;	/* global color table */
 	struct GIF_ct *lct = NULL;	/* local color table */
 	size_t gif_len = 0;
@@ -385,9 +420,21 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 			gif_len++;
 		}
 
+		/* Parse Image Descriptor */
 		if (byte != INTRO_IMG_DESC)
 			GIF_ERROR("GIF: missing image description\n");
-		/* TODO: parse image description */
+		if ((block_len = load_img_desc(&img_desc, f_gif)) == 0)
+			GIF_ERROR("GIF: invalid image descriptor\n");
+		gif_len += block_len;
+
+		/* Check if Image and Screen descriptor size differs */
+		if (lsd.width != img_desc.width ||
+			lsd.height != img_desc.height)
+			GIF_ERROR("Image and Screen desc size differs\n");
+
+		/* TODO parse lct */
+
+		/* TODO parse image data */
 
 		if (lct) {
 			free(lct);
