@@ -49,14 +49,61 @@ struct GIF_ct
 	uint8_t b;
 } __attribute__((packed));
 
+/* Packed Fields for Graphic Control Extension */
+struct GIF_ext_gcontrol_field
+{
+	uint8_t reserved : 3;
+	uint8_t disposal : 3;
+	uint8_t input_flag : 1;
+	uint8_t transparet_flag : 1;
+} __attribute__((packed));
+
+/* Graphic Control Extension */
+struct GIF_ext_gcontrol
+{
+	struct GIF_ext_gcontrol_field field;
+	uint16_t delay;
+	uint8_t transparent;
+} __attribute__((packed));
+
+/* Plain Text Extension */
+struct GIF_ext_plain
+{
+	uint16_t grid_left;
+	uint16_t grid_top;
+	uint16_t grid_width;
+	uint16_t grid_height;
+	uint8_t cell_width;
+	uint8_t cell_height;
+	uint8_t foreground;
+	uint8_t background;
+} __attribute__((packed));
+
+/* Application Extension */
+struct GIF_ext_app
+{
+	char identifier[8];
+	uint8_t auth[3];
+} __attribute__((packed));
+
 #define SIZE_HEADER		(sizeof(struct GIF_header))
 #define SIZE_LSD		(sizeof(struct GIF_lsd))
+#define SIZE_EXT_GCONTROL	(sizeof(struct GIF_ext_gcontrol))
+#define SIZE_EXT_PLAIN		(sizeof(struct GIF_ext_plain))
+#define SIZE_EXT_APP		(sizeof(struct GIF_ext_app))
+
+#define BLOCK_TERM		((uint8_t) 0x0000)
 
 #define COLOR_TABLE_SIZE(size)	(3u * (1u << ((size) + 1u)))
 
 #define INTRO_EXTENSION		((uint8_t) 0x21)
 #define INTRO_IMG_DESC		((uint8_t) 0x2C)
 #define TRAILER			((uint8_t) 0x3B)
+
+#define EXT_GCONTROL		((uint8_t) 0xF9)
+#define EXT_COMMENT		((uint8_t) 0xFE)
+#define EXT_PLAIN_TXT		((uint8_t) 0x01)
+#define EXT_APP			((uint8_t) 0xFF)
 
 #define GIF_ERROR(string) \
 	do { \
@@ -110,10 +157,181 @@ static size_t load_color_table(struct GIF_ct *table, uint16_t size, FILE *f_gif)
 	return cnt;
 }
 
+static size_t load_ext_gcontrol(struct GIF_ext_gcontrol *ext, FILE *f_gif)
+{
+	assert(ext);
+	assert(f_gif);
+	size_t cnt;
+	uint8_t byte;
+
+	cnt = fread(&byte, 1, 1, f_gif);
+	if (cnt != 1 || byte != SIZE_EXT_GCONTROL)
+		return 0;
+
+	cnt = fread(ext, 1, SIZE_EXT_GCONTROL, f_gif);
+	if (cnt != SIZE_EXT_GCONTROL)
+		return 0;
+
+	cnt = fread(&byte, 1, 1, f_gif);
+	if (cnt != 1 || byte != BLOCK_TERM)
+		return 0;
+
+	return 1 + SIZE_EXT_GCONTROL + 1;
+}
+
+static size_t load_ext_comment(FILE *f_gif)
+{
+	assert(f_gif);
+	char comment[256];
+	size_t cnt, ret;
+	uint8_t byte;
+
+	/* Read block size */
+	cnt = fread(&byte, 1, 1, f_gif);
+	if (cnt != 1)
+		return 0;
+	ret = 1;
+
+	/* Read all data sub-blocks */
+	while (byte != BLOCK_TERM) {
+		cnt = fread(comment, 1, byte, f_gif);
+		if (cnt != byte)
+			return 0;
+		ret += cnt;
+
+		comment[byte] = '\0';
+		printf("GIF comment: %s\n", comment);
+
+		/* Read block size */
+		cnt = fread(&byte, 1, 1, f_gif);
+		if (cnt != 1)
+			return 0;
+		ret++;
+	}
+
+	return ret;
+}
+
+static size_t load_ext_plain(struct GIF_ext_plain *ext, FILE *f_gif)
+{
+	assert(ext);
+	assert(f_gif);
+	uint8_t data[256];
+	size_t cnt, ret;
+	uint8_t byte;
+
+	cnt = fread(&byte, 1, 1, f_gif);
+	if (cnt != 1 || byte != SIZE_EXT_PLAIN)
+		return 0;
+	ret = 1;
+
+	cnt = fread(&ext, 1, SIZE_EXT_PLAIN, f_gif);
+	if (cnt != SIZE_EXT_PLAIN)
+		return 0;
+	ret += SIZE_EXT_PLAIN;
+
+	cnt = fread(&byte, 1, 1, f_gif);
+	if (cnt != 1 || byte != BLOCK_TERM)
+		return 0;
+	ret++;
+
+	/* Read all data sub-blocks */
+	while (byte != BLOCK_TERM) {
+		cnt = fread(data, 1, byte, f_gif);
+		if (cnt != byte)
+			return 0;
+		ret += cnt;
+
+		/* Read block size */
+		cnt = fread(&byte, 1, 1, f_gif);
+		if (cnt != 1)
+			return 0;
+		ret++;
+	}
+
+	return ret;
+}
+
+static size_t load_ext_app(struct GIF_ext_app *ext, FILE *f_gif)
+{
+	assert(ext);
+	assert(f_gif);
+	uint8_t data[256];
+	size_t cnt, ret;
+	uint8_t byte;
+	char identifier[9];
+
+	cnt = fread(&byte, 1, 1, f_gif);
+	if (cnt != 1 || byte != SIZE_EXT_APP)
+		return 0;
+	ret = 1;
+
+	cnt = fread(ext, 1, SIZE_EXT_APP, f_gif);
+	if (cnt != SIZE_EXT_APP)
+		return 0;
+	ret += SIZE_EXT_APP;
+
+	memcpy(identifier, ext->identifier, 8);
+	identifier[8] = '\0';
+	printf("GIF: Application Identifier: %s\n", identifier);
+
+	cnt = fread(&byte, 1, 1, f_gif);
+	if (cnt != 1 || byte != BLOCK_TERM)
+		return 0;
+	ret++;
+
+	/* Read all data sub-blocks */
+	while (byte != BLOCK_TERM) {
+		cnt = fread(data, 1, byte, f_gif);
+		if (cnt != byte)
+			return 0;
+		ret += cnt;
+
+		/* Read block size */
+		cnt = fread(&byte, 1, 1, f_gif);
+		if (cnt != 1)
+			return 0;
+		ret++;
+	}
+
+	return ret;
+}
+
 static size_t load_ext(FILE *f_gif)
 {
-	/*TODO */
-	return 0;
+	assert(f_gif);
+	struct GIF_ext_gcontrol gcontrol;
+	struct GIF_ext_plain plain;
+	struct GIF_ext_app app;
+	size_t cnt;
+	uint8_t byte;
+
+	/* Identify the current extension */
+	cnt = fread(&byte, 1, 1, f_gif);
+	if (cnt != 1)
+		return 0;
+
+	switch (byte) {
+	case EXT_GCONTROL:
+		cnt = load_ext_gcontrol(&gcontrol, f_gif);
+		break;
+	case EXT_COMMENT:
+		cnt = load_ext_comment(f_gif);
+		break;
+	case EXT_PLAIN_TXT:
+		cnt = load_ext_plain(&plain, f_gif);
+		break;
+	case EXT_APP:
+		cnt = load_ext_app(&app, f_gif);
+		break;
+	default:
+		return 0;
+	}
+
+	if (cnt == 0)
+		return 0;
+
+	return cnt + 1; /* extension identifier + extension itself */
 }
 
 size_t gif_load(image_t *p_img, FILE *f_gif)
