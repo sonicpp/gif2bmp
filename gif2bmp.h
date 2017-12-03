@@ -1,5 +1,5 @@
 /*
- * gif2bmp.c - Read GIF image, convert it to PNG image and write it to output
+ * gif2bmp.c - Read GIF image, convert it to BMP image and write it to output
  *
  * Copyright (C) 2017 Jan Havran
  *
