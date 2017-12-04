@@ -12,7 +12,7 @@
 
 #include "bmp.h"
 
-size_t bmp_save(image_t *p_img, FILE *f_bmp)
+size_t bmp_save(image_t *p_img, const FILE *f_bmp)
 {
 	return 0;
 }
