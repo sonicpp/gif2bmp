@@ -1,5 +1,5 @@
 /*
- * bmp.h - Convert p_img to PNG format and write it to f_gif
+ * bmp.h - Convert p_img to BMP format and write it to f_bmp
  *
  * Copyright (C) 2017 Jan Havran
  *
@@ -13,7 +13,7 @@
 
 #include "gif2bmp.h"
 
-extern size_t bmp_save(image_t *p_img, FILE *f_gif);
+extern size_t bmp_save(image_t *p_img, FILE *f_bmp);
 
 #endif // BMP_H
 
