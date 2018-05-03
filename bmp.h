@@ -13,7 +13,7 @@
 
 #include "gif2bmp.h"
 
-extern size_t bmp_save(image_t *p_img, const FILE *f_bmp);
+extern size_t bmp_save(const image_t *p_img, FILE *f_bmp);
 
 #endif // BMP_H
 
