@@ -17,7 +17,7 @@ typedef struct
 {
 	uint16_t width;
 	uint16_t height;
-	uint8_t *data;
+	uint8_t *data;	/* RGB */
 } image_t;
 
 #endif // GIF2BMP_H

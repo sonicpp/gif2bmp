@@ -9,6 +9,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
 #include <errno.h>
@@ -26,10 +27,13 @@ static void io_close(FILE *f_input, FILE *f_output);
 
 static int gif2bmp(FILE *input, FILE *output)
 {
-	image_t img;
+	image_t img = { .data = NULL} ;
 
-	gif_load(&img, input);
-	bmp_save(&img, output);
+	/* TODO - linked list of images - parse GIF animations */
+	if (gif_load(&img, input)) {
+		bmp_save(&img, output);
+		free(img.data);
+	}
 
 	return 0;
 }

@@ -25,10 +25,10 @@ struct GIF_header
 /* Packed Fields for Logical Screen Descriptor */
 struct GIF_lsd_field
 {
-	uint8_t gct_flag : 1;
-	uint8_t col_resolution : 3;
-	uint8_t sort_flag : 1;
 	uint8_t gct_size : 3;
+	uint8_t sort_flag : 1;
+	uint8_t col_resolution : 3;
+	uint8_t gct_flag : 1;
 } __attribute__((packed));
 
 /* Logical Screen Descriptor */
@@ -44,11 +44,11 @@ struct GIF_lsd
 /* Packed Fields for Image Descriptor */
 struct GIF_img_desc_field
 {
-	uint8_t lct_flag : 1;
-	uint8_t interlace_flag : 1;
-	uint8_t sort_flag : 1;
-	uint8_t reserved : 2;
 	uint8_t lct_size : 3;
+	uint8_t reserved : 2;
+	uint8_t sort_flag : 1;
+	uint8_t interlace_flag : 1;
+	uint8_t lct_flag : 1;
 } __attribute__((packed));
 
 /* Image Descriptor */
@@ -113,7 +113,7 @@ struct GIF_ext_app
 #define SIZE_EXT_PLAIN		(sizeof(struct GIF_ext_plain))
 #define SIZE_EXT_APP		(sizeof(struct GIF_ext_app))
 
-#define BLOCK_TERM		((uint8_t) 0x0000)
+#define BLOCK_TERM		((uint8_t)  0x00)
 
 #define COLOR_TABLE_SIZE(size)	(3u * (1u << ((size) + 1u)))
 
@@ -130,7 +130,7 @@ struct GIF_ext_app
 	do { \
 		fprintf(stderr, string); \
 		gif_len = 0; \
-		goto gif_end; \
+		goto gif_err; \
 	} while(0)
 
 static size_t load_header(struct GIF_header *header, FILE *f_gif)
@@ -145,7 +145,8 @@ static size_t load_header(struct GIF_header *header, FILE *f_gif)
 
 	if (memcmp(header->signature, "GIF", 3))
 		return 0;
-	if (memcmp(header->version, "89a", 3) && memcmp(header->version, "87a", 3))
+	if (memcmp(header->version, "89a", 3) &&
+	memcmp(header->version, "87a", 3))
 		return 0;
 
 	return cnt;
@@ -221,7 +222,7 @@ static size_t load_ext_comment(FILE *f_gif)
 		ret += cnt;
 
 		comment[byte] = '\0';
-		printf("GIF comment: %s\n", comment);
+		printf("GIF: Comment: '%s'\n", comment);
 
 		/* Read block size */
 		cnt = fread(&byte, 1, 1, f_gif);
@@ -296,6 +297,7 @@ static size_t load_ext_app(struct GIF_ext_app *ext, FILE *f_gif)
 	identifier[8] = '\0';
 	printf("GIF: Application Identifier: %s\n", identifier);
 
+	/* TODO do-while */
 	cnt = fread(&byte, 1, 1, f_gif);
 	if (cnt != 1 || byte != BLOCK_TERM)
 		return 0;
@@ -368,6 +370,16 @@ static size_t load_img_desc(struct GIF_img_desc *desc, FILE *f_gif)
 	return cnt;
 }
 
+static size_t load_image(image_t *img, uint16_t col_table_size,
+	const struct GIF_ct *col_table, FILE *f_gif)
+{
+	assert(img);
+	assert(col_table);
+	assert(f_gif);
+
+	return 0;
+}
+
 size_t gif_load(image_t *p_img, FILE *f_gif)
 {
 	struct GIF_header header;
@@ -378,6 +390,9 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 	struct GIF_ct *lct = NULL;	/* local color table */
 	size_t gif_len = 0;
 	size_t block_len = 0;
+	uint16_t cct_size = 0;		/* current color table size */
+	uint16_t gct_size = 0;		/* global color table size */
+	uint16_t lct_size = 0;		/* local color table size */
 	uint8_t byte;
 
 	/* Parse Header */
@@ -396,20 +411,22 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 			COLOR_TABLE_SIZE(lsd.field.gct_size))) == NULL) {
 			GIF_ERROR("Not enough memory\n");
 		}
+
 		if ((block_len = load_color_table(gct,
 			COLOR_TABLE_SIZE(lsd.field.gct_size), f_gif)) == 0) {
 			GIF_ERROR("GIF: Invalid Global Color Table\n");
 		}
 		gif_len += block_len;
+		gct_size = COLOR_TABLE_SIZE(lsd.field.gct_size);
 	}
+
+	/* Check label - determine which block follows */
+	if (fread(&byte, 1, 1, f_gif) == 0)
+		GIF_ERROR("GIF: missing file content\n");
+	gif_len++;
 
 	/* Parse Data Streams */
 	do {
-		/* Check label - determine which block follows */
-		if (fread(&byte, 1, 1, f_gif) == 0)
-			GIF_ERROR("GIF: missing file content\n");
-		gif_len++;
-
 		/* Parse extensions - if present */
 		while (byte == INTRO_EXTENSION) {
 			if ((block_len = load_ext(f_gif)) == 0)
@@ -443,21 +460,43 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 			COLOR_TABLE_SIZE(img_desc.field.lct_size), f_gif)) == 0)
 				GIF_ERROR("Invalid Local Color Table\n");
 			gif_len += block_len;
+			lct_size = COLOR_TABLE_SIZE(img_desc.field.lct_size);
 		}
+
+		/* Alloc canvas for image */
+		if ((p_img->data =
+		(uint8_t *) malloc(lsd.width * lsd.height * 3u)) == NULL)
+			GIF_ERROR("Not enough memory\n");
+		p_img->width  = lsd.width;
+		p_img->height = lsd.height;
 
 		/* Choose Current Color Table */
 		cct = (lct) ? lct : gct;
+		cct_size = (lct) ? lct_size : gct_size;
 
-		/* TODO parse image data */
+		/* Parse image data */
+		block_len = load_image(p_img, cct_size, cct, f_gif);
+		gif_len += block_len;
 
 		if (lct) {
 			free(lct);
 			lct = NULL;
+			lct_size = 0;
 		}
+		byte = TRAILER;
 	} while (byte != TRAILER);
 
 	/* TODO: parse remaining bytes? */
 
+	goto gif_end;
+
+gif_err:
+	gif_len = 0;
+	p_img->width = p_img->height = 0;
+	if (p_img->data) {
+		free(p_img->data);
+		p_img->data = NULL;
+	}
 gif_end:
 	if (gct)
 		free(gct);
