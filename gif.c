@@ -106,6 +106,16 @@ struct GIF_ext_app
 	uint8_t auth[3];
 } __attribute__((packed));
 
+/* LZW/image configuration */
+typedef struct
+{
+	uint16_t min_code;
+	uint16_t palette_size;
+	uint16_t clear_code;
+	uint16_t end_code;
+	uint16_t start_code;
+} lzw_info_t;
+
 #define SIZE_HEADER		(sizeof(struct GIF_header))
 #define SIZE_LSD		(sizeof(struct GIF_lsd))
 #define SIZE_IMG_DESC		(sizeof(struct GIF_img_desc))
@@ -114,6 +124,7 @@ struct GIF_ext_app
 #define SIZE_EXT_APP		(sizeof(struct GIF_ext_app))
 
 #define BLOCK_TERM		((uint8_t)  0x00)
+#define BLOCK_ERR		((uint16_t) 0xFFFF)
 
 #define COLOR_TABLE_SIZE(size)	(3u * (1u << ((size) + 1u)))
 
@@ -370,14 +381,60 @@ static size_t load_img_desc(struct GIF_img_desc *desc, FILE *f_gif)
 	return cnt;
 }
 
+static size_t read_block(uint8_t *block, FILE *f_gif)
+{
+	size_t cnt;
+	uint8_t len;
+
+	/* Get the block length */
+	cnt = fread(&len, 1, 1, f_gif);
+	if (cnt != 1)
+		return BLOCK_ERR;
+
+	if (len == BLOCK_TERM)
+		return BLOCK_TERM;
+
+	cnt = fread(block, 1, len, f_gif);
+	if (cnt != len)
+		return BLOCK_ERR;
+
+	return cnt;
+}
+
 static size_t load_image(image_t *img, uint16_t col_table_size,
 	const struct GIF_ct *col_table, FILE *f_gif)
 {
 	assert(img);
 	assert(col_table);
 	assert(f_gif);
+	size_t cnt;
+	size_t ret;
+	lzw_info_t lzw_info;
+	uint16_t block_len;
+	uint8_t dict_width;
+	uint8_t block[256];
 
-	return 0;
+	/* Read the init key width */
+	cnt = fread(&dict_width, 1, 1, f_gif);
+	if (cnt != 1) {
+		fprintf(stderr, "GIF: LZW error\n");
+		return 0;
+	}
+	ret = cnt;
+
+	lzw_info.min_code = dict_width;
+	lzw_info.palette_size = col_table_size / 3;
+	lzw_info.clear_code = 1 << dict_width;
+	lzw_info.end_code = lzw_info.clear_code + 1;
+	lzw_info.start_code = lzw_info.end_code + 1;
+
+	/* Read and parse image data blocks one by one */
+	while (!((block_len = read_block(block, f_gif)) == BLOCK_ERR
+		|| block_len == BLOCK_TERM)) {
+		ret += block_len + 1;
+	}
+
+	return (block_len == BLOCK_ERR) ? 0 : ret;
 }
 
 size_t gif_load(image_t *p_img, FILE *f_gif)
@@ -475,7 +532,8 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 		cct_size = (lct) ? lct_size : gct_size;
 
 		/* Parse image data */
-		block_len = load_image(p_img, cct_size, cct, f_gif);
+		if ((block_len = load_image(p_img, cct_size, cct, f_gif)) == 0)
+			GIF_ERROR("GIF: Invalid picture data\n");
 		gif_len += block_len;
 
 		if (lct) {
@@ -483,7 +541,14 @@ size_t gif_load(image_t *p_img, FILE *f_gif)
 			lct = NULL;
 			lct_size = 0;
 		}
-		byte = TRAILER;
+
+		/* Read empty block */
+		do {
+			if (fread(&byte, 1, 1, f_gif) == 0)
+				GIF_ERROR("GIF: missing file content\n");
+			gif_len++;
+		} while (byte == 0);
+
 	} while (byte != TRAILER);
 
 	/* TODO: parse remaining bytes? */
