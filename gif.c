@@ -116,6 +116,13 @@ typedef struct
 	uint16_t start_code;
 } lzw_info_t;
 
+/* LZW table */
+typedef struct
+{
+	uint16_t row;
+	uint8_t val;
+} table_t;
+
 #define SIZE_HEADER		(sizeof(struct GIF_header))
 #define SIZE_LSD		(sizeof(struct GIF_lsd))
 #define SIZE_IMG_DESC		(sizeof(struct GIF_img_desc))
@@ -124,7 +131,11 @@ typedef struct
 #define SIZE_EXT_APP		(sizeof(struct GIF_ext_app))
 
 #define BLOCK_TERM		((uint8_t)  0x00)
+#define BLOCK_EMPTY		((uint16_t) 0xFFFE)
 #define BLOCK_ERR		((uint16_t) 0xFFFF)
+
+#define TABLE_TERM		((uint16_t) 0xFFFF)
+#define TABLE_MAX_WIDTH		(12u)
 
 #define COLOR_TABLE_SIZE(size)	(3u * (1u << ((size) + 1u)))
 
@@ -401,6 +412,208 @@ static size_t read_block(uint8_t *block, FILE *f_gif)
 	return cnt;
 }
 
+uint16_t dict_get_row_len(table_t *table, uint16_t row)
+{
+	uint16_t len = 1;
+
+	while (table[row].row != TABLE_TERM) {
+		row = table[row].row;
+		len++;
+	}
+
+	return len;
+}
+
+static uint16_t dict_get_val(table_t *table, uint16_t row, uint16_t index)
+{
+	uint16_t len = dict_get_row_len(table, row);
+	uint16_t pos = 0;
+	uint8_t val = 0;
+
+	/* Get val from row[index] */
+	while (pos < len - index) {
+		val = table[row].val;
+		row = table[row].row;
+		pos += 1;
+	}
+
+	return val;
+}
+
+static uint16_t unpack_code(uint16_t block_len, uint16_t *block_inx,
+	uint8_t *block, uint8_t *shift, uint8_t width, uint32_t *prev_stream,
+	uint8_t *prev_cnt)
+{
+	static int clear = 1;	/* Indicator whether we needs data from previous
+				   data block or not */
+	uint32_t stream;	/* Current 4B of streamu */
+	uint16_t code;		/* Loaded code */
+	uint8_t b1, b2, b3, b4;	/* Bytes forming "stream" variable */
+	uint16_t mask = ((uint16_t) 0xFFFF) >> (16 - width);
+	uint16_t stream_req = *shift + width;	/* Required number of valid
+						   bits in data stream */
+
+	/* Completely whole block has been read*/
+	if (*block_inx == block_len) {
+		return BLOCK_EMPTY;
+	}
+
+	/* Join current byte with 3 upcomming bytes (if they are available)
+	   into 32b long stream from which we will mask code of required
+	   width */
+	b1 = block[*block_inx];
+	b2 = (*block_inx + 1 < block_len) ?
+		block[*block_inx + 1] : (uint8_t) 0x00;
+	b3 = (*block_inx + 2 < block_len) ?
+		block[*block_inx + 2] : (uint8_t) 0x00;
+	b4 = (*block_inx + 3 < block_len) ?
+		block[*block_inx + 3] : (uint8_t) 0x00;
+	stream = (((uint32_t) b1) << 0) |
+		(((uint32_t) b2) << 8) |
+		(((uint32_t) b3) << 16) |
+		(((uint32_t) b4) << 24);
+
+	/* Do we have enough bits? */
+	if (stream_req > (block_len - *block_inx) * 8) {
+		/* Store some data for upcoming data block */
+		*prev_stream = stream;
+		*prev_cnt = block_len - *block_inx;
+		clear = 0;
+		return BLOCK_EMPTY;
+	}
+
+	/* Join current stream with code from previous block if necessary */
+	if (!clear) {
+		if (*prev_cnt == 2) {
+			stream = stream << 16;
+			*prev_stream = *prev_stream & 0xFFFF;
+			*block_inx = -2;
+		}
+		else {
+			stream = stream << 8;
+			*prev_stream = *prev_stream & 0xFF;
+			*block_inx = -1;
+		}
+		stream = stream | *prev_stream;
+	}
+
+	/* Get code from stream */
+	code = stream >> *shift;
+	code = code & mask;
+
+	*shift += width;
+
+	/* Update shift position and current block index */
+	while (*shift >= 8) {
+		*shift = *shift - 8;
+		*block_inx += 1;
+	}
+
+	clear = 1;
+	return code;
+}
+
+static size_t decompress_data(image_t *img, uint16_t block_len, uint8_t *block,
+	const struct GIF_ct *col_table, const lzw_info_t *lzw_info)
+{
+	/* Static variables */
+	static uint32_t img_pos = 0;
+	static table_t table[1u << TABLE_MAX_WIDTH];
+	static uint16_t table_size = 0;
+	static uint16_t prev = 0xFFFF;	/* Previous code */
+	/* Static variables for fn 'unpack_code' */
+	static uint8_t shift = 0;
+	static uint8_t bits = 0;	/* Code width */
+	static uint32_t prev_stream = 0;
+	static uint8_t prev_cnt = 0;
+
+	uint16_t table_size_max;
+	uint16_t data_inx = 0;		/* Pos in data block */
+	uint16_t entry_size;
+	uint16_t code;
+	uint8_t byte;
+
+	/* Initialization of variables */
+	if (img_pos == 0) {
+		table_size = lzw_info->start_code;
+		bits = lzw_info->min_code + 1;
+		for (unsigned i = 0; i < lzw_info->palette_size; i++) {
+			table[i].row = TABLE_TERM;
+			table[i].val = i;
+		}
+	}
+
+	/* Current maximum table size */
+	table_size_max = (1 << bits) - 1;
+
+	/* Read code by code from data block */
+	while ((code = unpack_code(block_len, &data_inx, block, &shift,
+		bits, &prev_stream, &prev_cnt)) != BLOCK_EMPTY) {
+		/* Clear Code */
+		if (code == lzw_info->clear_code) {
+			table_size = lzw_info->start_code;
+			bits = lzw_info->min_code + 1;
+			table_size_max = (1 << bits) - 1;
+		}
+		/* End Code */
+		else if (code == lzw_info->end_code) {
+			img_pos = 0;
+			return 1;
+		}
+		/* Always print first word after Clear Code */
+		else if (prev == lzw_info->clear_code) {
+			/* Store pixels */
+			memcpy(img->data + img_pos, &col_table[code], 3);
+			img_pos += 3;
+		}
+		/* Create new entry */
+		else {
+			table[table_size].row = prev;
+			/* Create new entry by entry which is already in
+			   the dictionary */
+			if (code < table_size) {
+				table[table_size].val =
+					dict_get_val(table, code, 0);
+			}
+			/* Create new entry by entry which has been just
+			   created by the compressor */
+			else if (code == table_size) {
+				table[table_size].val =
+					dict_get_val(table, code, 0);
+			}
+			else {
+				fprintf(stderr,
+					"GIF: LZW key not in dictionary\n");
+				return 1;
+			}
+			table_size += 1;
+
+			/* Convert entry into pixels and store them */
+			entry_size = dict_get_row_len(table, code);
+			for (uint16_t i = 0; i < entry_size; i++) {
+				byte = dict_get_val(table, code, i);
+				memcpy(img->data + img_pos,
+					&col_table[byte], 3);
+				img_pos += 3;
+			}
+		}
+
+		/* Extend table if necessary */
+		if (table_size == table_size_max + 1) {
+			/* Ignoring table overflow is non-standard behaviour
+			   IMHO - but some images are compressed this way
+			   (clear code stored too late) */
+			if (bits < TABLE_MAX_WIDTH)
+				bits++;
+			table_size_max = (1 << bits) - 1;
+		}
+
+		prev = code;
+	}
+
+	return 0;
+}
+
 static size_t load_image(image_t *img, uint16_t col_table_size,
 	const struct GIF_ct *col_table, FILE *f_gif)
 {
@@ -432,6 +645,10 @@ static size_t load_image(image_t *img, uint16_t col_table_size,
 	while (!((block_len = read_block(block, f_gif)) == BLOCK_ERR
 		|| block_len == BLOCK_TERM)) {
 		ret += block_len + 1;
+
+		/* Parse data block */
+		if (decompress_data(img, block_len, block, col_table, &lzw_info))
+			break;
 	}
 
 	return (block_len == BLOCK_ERR) ? 0 : ret;
